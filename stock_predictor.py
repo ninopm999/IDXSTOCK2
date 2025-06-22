@@ -15,23 +15,26 @@ st.set_page_config(page_title="IDX Stock Predictor")
 st.title("📈 IDX High Dividend 20 – Smart Stock Predictor")
 
 # Sidebar inputs
-selected_symbol = st.sidebar.text_input("Enter IDX Symbol (e.g. BBRI.JK)", "BBRI.JK")
+st.sidebar.markdown("### 🛠 Options")
+user_file = st.sidebar.file_uploader("Upload CSV", type=['csv'])
+selected_symbol = st.sidebar.text_input("Or enter IDX stock (e.g. BBCA.JK)", "BBRI.JK")
 future_days = st.sidebar.slider("Days into the future for prediction", 1, 30, 7)
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)
 def load_data(symbol):
     df = yf.download(symbol, start="2024-01-01", end=datetime.today().strftime('%Y-%m-%d'), auto_adjust=False)
     df.reset_index(inplace=True)
-    df['Close'] = df['Close'].astype(float)
+    df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
     if isinstance(df['Close'], pd.DataFrame):
         df['Close'] = df['Close'].squeeze()
     return df
 
-@st.cache_data(ttl=3600)
 def add_indicators(df):
     close_series = df['Close']
     if isinstance(close_series, pd.DataFrame):
         close_series = close_series.squeeze()
+    elif isinstance(close_series.values, np.ndarray) and close_series.values.ndim == 2:
+        close_series = pd.Series(close_series.values.flatten(), index=close_series.index)
     
     df['RSI'] = RSIIndicator(close=close_series).rsi()
     df['MACD'] = MACD(close=close_series).macd()
@@ -58,7 +61,8 @@ def get_sentiment(text):
     return blob.sentiment.polarity
 
 # Load data
-df = load_data(selected_symbol)
+df = pd.read_csv(user_file) if user_file else load_data(selected_symbol)
+df['Date'] = pd.to_datetime(df['Date'])
 df = add_indicators(df)
 
 # Train model
@@ -81,7 +85,7 @@ fig.add_trace(go.Scatter(x=df['Date'], y=df['BB_High'], mode='lines', name='BB H
 fig.add_trace(go.Scatter(x=df['Date'], y=df['BB_Low'], mode='lines', name='BB Low', line=dict(dash='dot')))
 st.plotly_chart(fig, use_container_width=True)
 
-# Sentiment example
+# Sentiment
 news_text = f"Stock news for {selected_symbol}"
 sentiment_score = get_sentiment(news_text)
 st.write(f"📰 Sentiment score: {sentiment_score:.2f}")
