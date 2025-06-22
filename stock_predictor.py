@@ -12,6 +12,7 @@ from ta.trend import MACD
 from ta.volatility import BollingerBands
 import yfinance as yf
 import plotly.graph_objects as go
+import plotly.express as px
 import requests
 from textblob import TextBlob
 from functools import lru_cache
@@ -48,6 +49,7 @@ def add_indicators(data):
     return data.dropna()
 
 # --- Train Model ---
+@st.cache_data(ttl=1800)
 def train_model(data):
     features = ['Open', 'High', 'Low', 'Volume', 'RSI', 'MACD', 'BB_High', 'BB_Low', 'Day', 'Month', 'Year']
     X = data[features]
@@ -140,19 +142,35 @@ with st.expander("📰 Latest News & Sentiment (Beta)"):
         news_api_key = st.secrets["NEWS_API_KEY"] if "NEWS_API_KEY" in st.secrets else ""
         if news_api_key:
             query = selected_symbol.replace(".JK", "")
-            articles = fetch_news(query, news_api_key)[:5]
-            if articles:
-                for article in articles:
-                    st.markdown(f"**{article['title']}**")
-                    st.markdown(f"*{article['source']['name']} - {article['publishedAt'][:10]}*")
-                    st.markdown(f"[{article['url']}]({article['url']})")
-                    # Sentiment
-                    sentiment = TextBlob(article['title']).sentiment.polarity
-                    emoji = "👍 Positive" if sentiment > 0 else ("😐 Neutral" if sentiment == 0 else "👎 Negative")
-                    st.markdown(f"**Sentiment:** {emoji}")
-                    st.markdown("---")
-            else:
-                st.info("No recent news found for this stock.")
+            articles = fetch_news(query, news_api_key)[:10]
+            sentiments = []
+            news_df = []
+            for article in articles:
+                title = article['title']
+                date = article['publishedAt'][:10]
+                url = article['url']
+                source = article['source']['name']
+                sentiment = TextBlob(title).sentiment.polarity
+                label = "Positive" if sentiment > 0 else ("Neutral" if sentiment == 0 else "Negative")
+                sentiments.append(label)
+                news_df.append({"Title": title, "Source": source, "Date": date, "Sentiment": label, "URL": url})
+                st.markdown(f"**{title}**")
+                st.markdown(f"*{source} - {date}*")
+                st.markdown(f"[{url}]({url})")
+                emoji = "👍" if label == "Positive" else ("😐" if label == "Neutral" else "👎")
+                st.markdown(f"**Sentiment:** {emoji} {label}")
+                st.markdown("---")
+
+            # Pie chart summary
+            sentiment_summary = pd.Series(sentiments).value_counts().reset_index()
+            sentiment_summary.columns = ['Sentiment', 'Count']
+            pie_fig = px.pie(sentiment_summary, values='Count', names='Sentiment', title='News Sentiment Distribution')
+            st.plotly_chart(pie_fig, use_container_width=True)
+
+            # Export sentiment as CSV
+            sentiment_export = pd.DataFrame(news_df).to_csv(index=False).encode('utf-8')
+            st.download_button("📰 Download Sentiment CSV", data=sentiment_export, file_name="news_sentiment.csv", mime="text/csv")
+
         else:
             st.warning("🔐 NewsAPI key not set. Add it via Streamlit secrets for live headlines.")
     except Exception as e:
