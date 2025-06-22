@@ -102,8 +102,8 @@ future_features = pd.DataFrame([{
     'Year': future_date.year
 }])
 
-future_price = model.predict(future_features)[0]
-last_close = df['Close'].iloc[-1]
+future_price = float(model.predict(future_features)[0])
+last_close = float(df['Close'].iloc[-1])
 trend_arrow = "📉" if future_price < last_close else "📈"
 
 st.success(f"{trend_arrow} Predicted Close Price on {future_date.date()}: Rp {future_price:,.2f}")
