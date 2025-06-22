@@ -12,6 +12,7 @@ from ta.trend import MACD
 from ta.volatility import BollingerBands
 import yfinance as yf
 import plotly.graph_objects as go
+import requests
 
 st.set_page_config(page_title="IDX Stock Predictor + Indicators + Sentiment", layout="wide")
 st.title("📈 IDX High Dividend 20 – Smart Stock Predictor")
@@ -83,6 +84,15 @@ with st.expander("📊 View Actual vs Predicted Close Price"):
     fig.update_layout(title="Actual vs Predicted Close Price", xaxis_title="Date", yaxis_title="Price (IDR)")
     st.plotly_chart(fig, use_container_width=True)
 
+    # Export results as CSV
+    result_df = pd.DataFrame({
+        'Date': test_dates,
+        'Actual': y_test,
+        'Predicted': predictions
+    })
+    csv_export = result_df.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 Download Predictions as CSV", data=csv_export, file_name="predicted_vs_actual.csv", mime="text/csv")
+
 # --- Predict Future ---
 st.subheader("📅 Predict Future Price")
 days_ahead = st.slider("Days into the future", 1, 30, 5)
@@ -115,5 +125,24 @@ with st.expander("📉 Technical Indicators Today"):
     col2.metric("MACD", f"{df['MACD'].iloc[-1]:.2f}", delta=None)
     col3.metric("BB Width", f"{(df['BB_High'].iloc[-1] - df['BB_Low'].iloc[-1]):.2f}")
 
-# --- (Optional) Sentiment Note ---
-st.caption("📌 Future enhancement: Integrate sentiment from news or social media APIs like NewsAPI or Twitter.")
+# --- News Sentiment Tab ---
+with st.expander("📰 Latest News & Sentiment (Beta)"):
+    try:
+        news_api_key = st.secrets["NEWS_API_KEY"] if "NEWS_API_KEY" in st.secrets else ""
+        if news_api_key:
+            query = selected_symbol.replace(".JK", "")
+            url = f"https://newsapi.org/v2/everything?q={query}+stock&sortBy=publishedAt&language=en&apiKey={news_api_key}"
+            response = requests.get(url)
+            articles = response.json().get("articles", [])[:5]
+            if articles:
+                for article in articles:
+                    st.markdown(f"**{article['title']}**")
+                    st.markdown(f"*{article['source']['name']} - {article['publishedAt'][:10]}*")
+                    st.markdown(f"[{article['url']}]({article['url']})")
+                    st.markdown("---")
+            else:
+                st.info("No recent news found for this stock.")
+        else:
+            st.warning("🔐 NewsAPI key not set. Add it via Streamlit secrets for live headlines.")
+    except Exception as e:
+        st.error(f"❌ Failed to load news: {e}")
