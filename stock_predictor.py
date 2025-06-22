@@ -95,7 +95,8 @@ with tabs[1]:
     last_row = df.iloc[-1]
     future_features = pd.DataFrame([{ 'Open': last_row['Open'], 'High': last_row['High'], 'Low': last_row['Low'], 'Volume': last_row['Volume'], 'RSI': last_row['RSI'], 'MACD': last_row['MACD'], 'BB_High': last_row['BB_High'], 'BB_Low': last_row['BB_Low'], 'Day': future_date.day, 'Month': future_date.month, 'Year': future_date.year }])
     future_price = float(model.predict(future_features)[0])
-    last_close = float(df['Close'].iloc[-1])
+    last_close_series = df['Close'].iloc[-1]
+    last_close = float(last_close_series.item() if hasattr(last_close_series, 'item') else last_close_series)
     trend = "📈" if future_price > last_close else "📉"
     st.success(f"{trend} Future Close Price ({future_date.date()}): Rp {future_price:,.2f}")
 
