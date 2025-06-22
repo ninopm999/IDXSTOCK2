@@ -23,6 +23,7 @@ symbol = "BBRI.JK"  # Example default symbol
 df = yf.download(symbol, start="2024-01-01", end=datetime.today().strftime("%Y-%m-%d"), auto_adjust=False)
 
 # Add technical indicators
+@st.cache_data(ttl=3600)
 def add_indicators(df):
     df['RSI'] = RSIIndicator(close=df['Close']).rsi()
     df['MACD'] = MACD(close=df['Close']).macd()
@@ -39,15 +40,15 @@ df = df.dropna()
 X = df[features]
 y = df['Close']
 model = RandomForestRegressor()
-model.fit(X, y)
+model.fit(X.values, y.values)  # Avoid scikit-learn warning
 
 # Predict future price with dummy input (for example purpose)
 future_features = X.tail(1)
-future_price = model.predict(future_features)
+future_price = model.predict(future_features.values)[0]  # Get single float value
 last_close = df['Close'].iloc[-1]
 
 # Fix ambiguous Series comparison and deprecated float usage
-future_price_value = float(future_price[0]) if isinstance(future_price, np.ndarray) else float(future_price.iloc[0])
+future_price_value = float(future_price)
 trend_arrow = "📉" if future_price_value < float(last_close) else "📈"
 
 # Show result
