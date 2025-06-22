@@ -13,6 +13,8 @@ from ta.volatility import BollingerBands
 import yfinance as yf
 import plotly.graph_objects as go
 import requests
+from textblob import TextBlob
+from functools import lru_cache
 
 st.set_page_config(page_title="IDX Stock Predictor + Indicators + Sentiment", layout="wide")
 st.title("📈 IDX High Dividend 20 – Smart Stock Predictor")
@@ -57,6 +59,13 @@ def train_model(data):
     r2 = r2_score(y_test, predictions)
     mae = mean_absolute_error(y_test, predictions)
     return model, r2, mae, X_test, y_test, predictions
+
+# --- News API Fetch + Caching ---
+@st.cache_data(ttl=3600)
+def fetch_news(query, api_key):
+    url = f"https://newsapi.org/v2/everything?q={query}+stock&sortBy=publishedAt&language=en&apiKey={api_key}"
+    response = requests.get(url)
+    return response.json().get("articles", [])
 
 # --- Load & Process Data ---
 if user_file:
@@ -131,14 +140,16 @@ with st.expander("📰 Latest News & Sentiment (Beta)"):
         news_api_key = st.secrets["NEWS_API_KEY"] if "NEWS_API_KEY" in st.secrets else ""
         if news_api_key:
             query = selected_symbol.replace(".JK", "")
-            url = f"https://newsapi.org/v2/everything?q={query}+stock&sortBy=publishedAt&language=en&apiKey={news_api_key}"
-            response = requests.get(url)
-            articles = response.json().get("articles", [])[:5]
+            articles = fetch_news(query, news_api_key)[:5]
             if articles:
                 for article in articles:
                     st.markdown(f"**{article['title']}**")
                     st.markdown(f"*{article['source']['name']} - {article['publishedAt'][:10]}*")
                     st.markdown(f"[{article['url']}]({article['url']})")
+                    # Sentiment
+                    sentiment = TextBlob(article['title']).sentiment.polarity
+                    emoji = "👍 Positive" if sentiment > 0 else ("😐 Neutral" if sentiment == 0 else "👎 Negative")
+                    st.markdown(f"**Sentiment:** {emoji}")
                     st.markdown("---")
             else:
                 st.info("No recent news found for this stock.")
