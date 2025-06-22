@@ -94,8 +94,8 @@ with tabs[1]:
     future_date = df['Date'].iloc[-1] + timedelta(days=5)
     last_row = df.iloc[-1]
     future_features = pd.DataFrame([{ 'Open': last_row['Open'], 'High': last_row['High'], 'Low': last_row['Low'], 'Volume': last_row['Volume'], 'RSI': last_row['RSI'], 'MACD': last_row['MACD'], 'BB_High': last_row['BB_High'], 'BB_Low': last_row['BB_Low'], 'Day': future_date.day, 'Month': future_date.month, 'Year': future_date.year }])
-    future_price = float(future_price := model.predict(future_features).item())
-    last_close = df['Close'].iloc[-1]
+    future_price = float(model.predict(future_features)[0])
+    last_close = float(df['Close'].iloc[-1])
     trend = "📈" if future_price > last_close else "📉"
     st.success(f"{trend} Future Close Price ({future_date.date()}): Rp {future_price:,.2f}")
 
