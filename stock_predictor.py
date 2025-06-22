@@ -1,104 +1,119 @@
+# IDX High Dividend 20 Stock Price Predictor with Technical Indicators & Sentiment
+
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import numpy as np
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
-import matplotlib.pyplot as plt
-import joblib
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
+from datetime import datetime, timedelta
+from ta.momentum import RSIIndicator
+from ta.trend import MACD
+from ta.volatility import BollingerBands
+import yfinance as yf
+import plotly.graph_objects as go
 
-# Function to fetch and cache stock data
-@st.cache_data
-def load_data(symbol, start="2010-01-01", end="2025-06-16"):
-    try:
-        data = yf.download(symbol, start=start, end=end)
-        if data.empty:
-            return None
-        return data
-    except Exception:
-        return None
+st.set_page_config(page_title="IDX Stock Predictor + Indicators + Sentiment", layout="wide")
+st.title("📈 IDX High Dividend 20 – Smart Stock Predictor")
 
-# Function to preprocess data and create features
-def preprocess_data(data, look_back=30, horizon=1):
-    data = data.copy()
-    # Create lagged price features
-    for i in range(1, look_back + 1):
-        data[f'lag_{i}'] = data['Close'].shift(i)
-    # Target is the price 'horizon' days ahead
-    data['target'] = data['Close'].shift(-horizon)
-    # Remove rows with NaN values
-    data = data.dropna()
-    X = data[[f'lag_{i}' for i in range(1, look_back + 1)]]
-    y = data['target']
-    return X, y, data
+# --- Sidebar Inputs ---
+st.sidebar.header("Upload or Select Your Stock Data")
+user_file = st.sidebar.file_uploader("Upload CSV with Date, Open, High, Low, Close, Volume", type=['csv'])
+selected_symbol = st.sidebar.text_input("Or enter IDX stock symbol (e.g. BBCA.JK)", value="ADRO.JK")
 
-# Streamlit app layout
-st.title("Indonesia Stock Price Predictor")
-st.markdown("""
-    This app predicts stock prices on the Indonesia Stock Exchange (IDX).
-    Select a stock and prediction horizon below.
-""")
+# --- Data Load Function ---
+def load_data(symbol):
+    data = yf.download(symbol, start="2024-01-01", end=datetime.today().strftime('%Y-%m-%d'))
+    data.reset_index(inplace=True)
+    return data
 
-# Stock selection
-stocks = {
-    'BBCA.JK': 'Bank Central Asia',
-    'TLKM.JK': 'Telekomunikasi Indonesia',
-    'BMRI.JK': 'Bank Mandiri'
-}
-selected_stock = st.selectbox("Select a Stock", list(stocks.keys()), format_func=lambda x: stocks[x])
+# --- Feature Engineering ---
+def add_indicators(data):
+    close_series = data['Close']
+    if isinstance(close_series, pd.DataFrame):
+        close_series = close_series.squeeze()
+    elif isinstance(close_series.values, np.ndarray) and close_series.values.ndim == 2:
+        close_series = close_series.values.squeeze()
+    data['RSI'] = RSIIndicator(close=close_series).rsi()
+    data['MACD'] = MACD(close=close_series).macd()
+    bb = BollingerBands(close=close_series)
+    data['BB_High'] = bb.bollinger_hband()
+    data['BB_Low'] = bb.bollinger_lband()
+    data['Day'] = data['Date'].dt.day
+    data['Month'] = data['Date'].dt.month
+    data['Year'] = data['Date'].dt.year
+    return data.dropna()
 
-# Prediction horizon
-horizon = st.slider("Prediction Horizon (Trading Days)", 1, 30, 1)
+# --- Train Model ---
+def train_model(data):
+    features = ['Open', 'High', 'Low', 'Volume', 'RSI', 'MACD', 'BB_High', 'BB_Low', 'Day', 'Month', 'Year']
+    X = data[features]
+    y = data[['Close']].values.squeeze()
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+    predictions = model.predict(X_test)
+    r2 = r2_score(y_test, predictions)
+    mae = mean_absolute_error(y_test, predictions)
+    return model, r2, mae, X_test, y_test, predictions
 
-# Button to trigger prediction
-if st.button("Predict"):
-    # Load data
-    data = load_data(selected_stock)
-    if data is None:
-        st.error("Unable to fetch data for this stock. Please try another.")
-    else:
-        # Preprocess data
-        X, y, processed_data = preprocess_data(data, look_back=30, horizon=horizon)
+# --- Load & Process Data ---
+if user_file:
+    df = pd.read_csv(user_file)
+    df['Date'] = pd.to_datetime(df['Date'])
+else:
+    df = load_data(selected_symbol)
+    st.info(f"Loaded data for: {selected_symbol}")
 
-        # Load pre-trained model (assumes model is pre-saved)
-        try:
-            model = joblib.load(f"{selected_stock}_model.pkl")
-        except FileNotFoundError:
-            st.error("Pre-trained model not found. Please ensure models are trained and saved.")
-            st.stop()
+st.write("✅ Data Preview:", df.tail())
+df = add_indicators(df)
 
-        # Prepare the latest features for prediction
-        latest_features = X.iloc[-1].values.reshape(1, -1)
-        predicted_price = model.predict(latest_features)[0]
+# --- Train & Display Results ---
+model, r2, mae, X_test, y_test, predictions = train_model(df)
+st.success("Model trained successfully!")
+st.metric("Model R² Accuracy", f"{r2*100:.2f}%")
+st.metric("Mean Absolute Error", f"{mae:.2f} IDR")
 
-        # Display prediction
-        st.subheader("Prediction")
-        st.write(f"Predicted price for {stocks[selected_stock]} in {horizon} trading days: **{predicted_price:.2f} IDR**")
+# --- Chart Actual vs Predicted ---
+with st.expander("📊 View Actual vs Predicted Close Price"):
+    fig = go.Figure()
+    test_dates = df['Date'].iloc[-len(y_test):]
+    fig.add_trace(go.Scatter(x=test_dates, y=y_test, mode='lines', name='Actual'))
+    fig.add_trace(go.Scatter(x=test_dates, y=predictions, mode='lines', name='Predicted'))
+    fig.update_layout(title="Actual vs Predicted Close Price", xaxis_title="Date", yaxis_title="Price (IDR)")
+    st.plotly_chart(fig, use_container_width=True)
 
-        # Visualization
-        st.subheader("Historical Prices and Prediction")
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(data.index, data['Close'], label='Historical Prices', color='blue')
-        last_date = data.index[-1]
-        future_date = last_date + pd.offsets.BDay(horizon)
-        ax.plot([last_date, future_date], [data['Close'].iloc[-1], predicted_price], 
-                'ro-', label='Predicted Price', linewidth=2)
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Price (IDR)")
-        ax.legend()
-        ax.grid(True)
-        st.pyplot(fig)
+# --- Predict Future ---
+st.subheader("📅 Predict Future Price")
+days_ahead = st.slider("Days into the future", 1, 30, 5)
+future_date = df['Date'].iloc[-1] + timedelta(days=days_ahead)
+last_row = df.iloc[-1]
+future_features = pd.DataFrame([{
+    'Open': last_row['Open'],
+    'High': last_row['High'],
+    'Low': last_row['Low'],
+    'Volume': last_row['Volume'],
+    'RSI': last_row['RSI'],
+    'MACD': last_row['MACD'],
+    'BB_High': last_row['BB_High'],
+    'BB_Low': last_row['BB_Low'],
+    'Day': future_date.day,
+    'Month': future_date.month,
+    'Year': future_date.year
+}])
 
-        # Model performance (example using last 30 days as test)
-        X_train, X_test = X[:-30], X[-30:]
-        y_train, y_test = y[:-30], y[-30:]
-        model.fit(X_train, y_train)  # Retrain for evaluation
-        test_pred = model.predict(X_test)
-        rmse = np.sqrt(mean_squared_error(y_test, test_pred))
-        st.write(f"Model RMSE (based on last 30 days): **{rmse:.2f} IDR**")
+future_price = model.predict(future_features)[0]
+last_close = df['Close'].iloc[-1]
+trend_arrow = "📉" if future_price < last_close else "📈"
 
-# Disclaimer
-st.markdown("""
-    **Disclaimer**: Stock price prediction is inherently uncertain due to market volatility and external factors. 
-    This app is for educational purposes only and should not be relied upon for investment decisions.
-""")
+st.success(f"{trend_arrow} Predicted Close Price on {future_date.date()}: Rp {future_price:,.2f}")
+
+# --- Technical Indicators Overview ---
+with st.expander("📉 Technical Indicators Today"):
+    col1, col2, col3 = st.columns(3)
+    col1.metric("RSI", f"{df['RSI'].iloc[-1]:.2f}", delta=None)
+    col2.metric("MACD", f"{df['MACD'].iloc[-1]:.2f}", delta=None)
+    col3.metric("BB Width", f"{(df['BB_High'].iloc[-1] - df['BB_Low'].iloc[-1]):.2f}")
+
+# --- (Optional) Sentiment Note ---
+st.caption("📌 Future enhancement: Integrate sentiment from news or social media APIs like NewsAPI or Twitter.")
