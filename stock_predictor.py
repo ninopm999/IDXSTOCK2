@@ -1,4 +1,4 @@
-# Original script snippet with fixes applied
+# Fixed version of the stock predictor script
 import streamlit as st
 from ta.momentum import RSIIndicator
 from ta.trend import MACD
@@ -46,8 +46,9 @@ future_features = X.tail(1)
 future_price = model.predict(future_features)
 last_close = df['Close'].iloc[-1]
 
-# Fixed ambiguous Series comparison
-trend_arrow = "📉" if float(future_price[0]) < float(last_close) else "📈"
+# Fix ambiguous Series comparison and deprecated float usage
+future_price_value = float(future_price[0]) if isinstance(future_price, np.ndarray) else float(future_price.iloc[0])
+trend_arrow = "📉" if future_price_value < float(last_close) else "📈"
 
 # Show result
-st.success(f"{trend_arrow} Predicted Close Price: Rp{future_price[0]:,.2f}")
+st.success(f"{trend_arrow} Predicted Close Price: Rp{future_price_value:,.2f}")
